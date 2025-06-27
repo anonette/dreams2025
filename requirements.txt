@@ -1,0 +1,27 @@
+# Core dependencies
+openai>=1.0.0
+anthropic>=0.7.0
+httpx>=0.27.0
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+deep-translator>=1.11.0
+
+# Statistical analysis
+statsmodels>=0.14.0
+scipy>=1.10.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.15.0
+
+# Async support
+aiohttp>=3.8.0
+
+# Utilities
+python-dotenv>=1.0.0
+tqdm>=4.65.0
+schedule>=1.2.0
+
+# Note: Using deep-translator instead of googletrans for better compatibility 
