@@ -1,13 +1,15 @@
-# Core dependencies
+# Core LLM APIs
 openai>=1.0.0
 anthropic>=0.7.0
 httpx>=0.27.0
+
+# Data Analysis and Processing
 pandas>=2.0.0
 numpy>=1.24.0
 scikit-learn>=1.3.0
-deep-translator>=1.11.0
+nltk>=3.8.0
 
-# Statistical analysis
+# Statistical Analysis
 statsmodels>=0.14.0
 scipy>=1.10.0
 
@@ -16,12 +18,45 @@ matplotlib>=3.7.0
 seaborn>=0.12.0
 plotly>=5.15.0
 
-# Async support
+# Natural Language Processing
+deep-translator>=1.11.0
+textblob>=0.17.0
+
+# Cultural Analysis Dependencies
+collections-extended>=2.0.0
+itertools-recipes>=1.0.0
+
+# Async Support
 aiohttp>=3.8.0
+asyncio>=3.4.3
 
 # Utilities
 python-dotenv>=1.0.0
 tqdm>=4.65.0
 schedule>=1.2.0
+json5>=0.9.0
+datetime>=5.0.0
+pathlib>=1.0.0
 
-# Note: Using deep-translator instead of googletrans for better compatibility 
+# Interactive Analysis
+streamlit>=1.28.0
+ipython>=8.12.0
+jupyter>=1.0.0
+
+# Web Interface Support
+flask>=2.3.0
+werkzeug>=2.3.0
+
+# File Processing
+openpyxl>=3.1.0
+xlsxwriter>=3.1.0
+
+# Research Reporting
+fpdf2>=2.7.0
+markdown>=3.5.0
+jinja2>=3.1.0
+
+# Note: Using deep-translator instead of googletrans for better compatibility
+# Cultural analysis requires nltk, textblob for NLP processing
+# Streamlit for interactive dashboards
+# Research reporting tools for academic output

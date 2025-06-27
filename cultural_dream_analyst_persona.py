@@ -1069,9 +1069,120 @@ class CulturalDreamAnalyst:
         # Step 6: Save results
         self.save_analysis_results(all_analyses, comparison, report)
         
-        # Generate example analysis output for demonstration
-        self.generate_example_analysis_output(all_analyses)
+        # Generate comprehensive analysis summary showing ALL dreams
+        self.generate_comprehensive_analysis_summary(all_analyses)
     
+    def generate_comprehensive_analysis_summary(self, all_analyses: Dict[str, List[DreamAnalysis]]):
+        """Generate comprehensive analysis summary showing ALL dreams analyzed"""
+        print("\n" + "="*80)
+        print("COMPREHENSIVE CULTURAL DREAM ANALYSIS SUMMARY")
+        print("="*80)
+        print(f"Total Dreams Analyzed: {sum(len(analyses) for analyses in all_analyses.values())}")
+        print("="*80)
+        
+        # Analyze ALL dreams for each language
+        for language, analyses in all_analyses.items():
+            if analyses:
+                print(f"\n--- {language.upper()} COMPREHENSIVE ANALYSIS ({len(analyses)} dreams) ---")
+                
+                # Cultural markers summary across ALL dreams
+                all_markers = []
+                for analysis in analyses:
+                    all_markers.extend(analysis.cultural_markers)
+                marker_counts = Counter(all_markers)
+                
+                # Setting analysis across ALL dreams
+                all_settings = defaultdict(int)
+                for analysis in analyses:
+                    for setting, count in analysis.settings.items():
+                        all_settings[setting] += count
+                
+                # Narrative structure analysis across ALL dreams
+                narrative_counts = Counter(analysis.narrative_structure for analysis in analyses)
+                
+                # Agency analysis across ALL dreams
+                agency_counts = Counter(analysis.agency_level for analysis in analyses)
+                
+                # Emotional analysis across ALL dreams
+                avg_anxiety = np.mean([a.anxiety_score for a in analyses])
+                avg_hostility = np.mean([a.hostility_score for a in analyses])
+                avg_alienation = np.mean([a.social_alienation_score for a in analyses])
+                
+                print(f"CULTURAL PATTERNS ACROSS ALL {len(analyses)} DREAMS:")
+                if marker_counts:
+                    top_markers = marker_counts.most_common(3)
+                    for marker, count in top_markers:
+                        pct = (count / len(analyses)) * 100
+                        print(f"  • {marker}: {count} dreams ({pct:.1f}%)")
+                
+                print(f"\nSETTING PREFERENCES (Total instances across all dreams):")
+                sorted_settings = sorted(all_settings.items(), key=lambda x: x[1], reverse=True)
+                for setting, count in sorted_settings[:3]:
+                    print(f"  • {setting}: {count} instances")
+                
+                print(f"\nNARRATIVE STRUCTURES:")
+                for narrative, count in narrative_counts.most_common(3):
+                    pct = (count / len(analyses)) * 100
+                    print(f"  • {narrative}: {count} dreams ({pct:.1f}%)")
+                
+                print(f"\nAGENCY PATTERNS:")
+                for agency, count in agency_counts.most_common():
+                    pct = (count / len(analyses)) * 100
+                    print(f"  • {agency}: {count} dreams ({pct:.1f}%)")
+                
+                print(f"\nEMOTIONAL PROFILE (Gottschalk-Gleser Averages):")
+                print(f"  • Anxiety: {avg_anxiety:.3f}")
+                print(f"  • Hostility: {avg_hostility:.3f}") 
+                print(f"  • Social Alienation: {avg_alienation:.3f}")
+                
+                # Find most representative dream for this language
+                example_dream = analyses[0]
+                max_markers = 0
+                for analysis in analyses:
+                    if len(analysis.cultural_markers) > max_markers and len(analysis.content) > 100:
+                        max_markers = len(analysis.cultural_markers)
+                        example_dream = analysis
+
+                print(f"\nMOST CULTURALLY RICH EXAMPLE (Dream {example_dream.dream_id}):")
+                print(f"Content: {example_dream.content[:150]}...")
+        
+        # Overall cross-cultural summary
+        print("\n" + "="*80)
+        print("CROSS-CULTURAL INSIGHTS FROM ALL DREAMS:")
+        print("="*80)
+        
+        # Universal patterns across ALL languages
+        all_cultural_markers = []
+        all_narratives = []
+        all_agencies = []
+        total_dreams = 0
+        
+        for language, analyses in all_analyses.items():
+            for analysis in analyses:
+                all_cultural_markers.extend(analysis.cultural_markers)
+                all_narratives.append(analysis.narrative_structure)
+                all_agencies.append(analysis.agency_level)
+                total_dreams += 1
+        
+        print(f"Total Dreams Analyzed: {total_dreams}")
+        print(f"\nUniversal Cultural Patterns:")
+        universal_markers = Counter(all_cultural_markers)
+        for marker, count in universal_markers.most_common(5):
+            pct = (count / total_dreams) * 100
+            print(f"  • {marker}: {count} dreams ({pct:.1f}% of all dreams)")
+        
+        print(f"\nDominant Narrative Structures:")
+        narrative_summary = Counter(all_narratives)
+        for narrative, count in narrative_summary.most_common(3):
+            pct = (count / total_dreams) * 100
+            print(f"  • {narrative}: {count} dreams ({pct:.1f}%)")
+        
+        print(f"\nAgency Distribution:")
+        agency_summary = Counter(all_agencies)
+        for agency, count in agency_summary.most_common():
+            pct = (count / total_dreams) * 100
+            print(f"  • {agency}: {count} dreams ({pct:.1f}%)")
+
     def generate_example_analysis_output(self, all_analyses: Dict[str, List[DreamAnalysis]]):
         """Generate example analysis output in the specified format"""
         print("\n" + "="*80)
