@@ -636,7 +636,17 @@ class CulturalDreamAnalyst:
                             comparison: Dict[str, Any], report: str):
         """Save analysis results in multiple formats for statistical analysis and research"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path("cultural_dream_analysis_output")
+        date_folder = datetime.now().strftime("%Y%m%d")
+        time_folder = datetime.now().strftime("%H%M%S")
+        
+        # Create organized directory structure: analysis_output/YYYYMMDD/HHMMSS/
+        base_output_dir = Path("analysis_output")
+        base_output_dir.mkdir(exist_ok=True)
+        
+        date_output_dir = base_output_dir / date_folder
+        date_output_dir.mkdir(exist_ok=True)
+        
+        output_dir = date_output_dir / f"cultural_dream_analysis_{time_folder}"
         output_dir.mkdir(exist_ok=True)
         
         # 1. Create comprehensive CSV dataset for statistical analysis
