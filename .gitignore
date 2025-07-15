@@ -1,8 +1,19 @@
-# Environment and API Keys
-.env
-*.key
+# Dreams Project - Comprehensive .gitignore
 
-# Python
+# ============================================================================
+# SENSITIVE DATA & API KEYS
+# ============================================================================
+.env
+.env.local
+.env.production
+*.key
+*_key.txt
+api_keys.json
+secrets.json
+
+# ============================================================================
+# PYTHON
+# ============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -25,45 +36,257 @@ wheels/
 *.egg
 MANIFEST
 
-# Virtual environments
+# ============================================================================
+# VIRTUAL ENVIRONMENTS
+# ============================================================================
 vnv/
 venv/
 ENV/
 env/
 .venv/
 dream_env/
+.conda/
+conda-meta/
 
-# IDE
+# ============================================================================
+# DREAMS PROJECT DATA (Large files that shouldn't be in git)
+# ============================================================================
+
+# Generated dream data (can be very large)
+data/logs/*/
+data/analysis_output/*/
+data/research_reports/*/
+data/cultural_analysis_output/*/
+data/enhanced_parameters_output/*/
+data/experimental_dreams_output/*/
+data/optimized_validation_output/*/
+data/pure_immediate_dreams_output/*/
+data/refined_translations_output/*/
+data/three_strategies_output/*/
+data/translations/large_datasets/
+data/test_jsons/large_files/
+
+# Keep structure but ignore large content
+data/logs/**/*.csv
+data/logs/**/*.json
+data/logs/**/*.jsonl
+data/**/*.csv
+data/**/*.json
+data/**/*.jsonl
+
+# Exception: Keep small config/sample files
+!data/logs/README.md
+!data/*/sample_*.json
+!data/*/config_*.json
+!data/*/schema_*.json
+
+# Legacy log directories (if any remain)
+logs/
+logs_*/
+*_logs/
+
+# Checkpoint and session files
+**/checkpoint_*.json
+**/session_*.json
+**/scalability_test_results_*.json
+
+# Large analysis files
+individual_dream_analysis_*.csv
+batch_analysis_*.csv
+comprehensive_analysis_*.json
+
+# ============================================================================
+# TEMPORARY & CACHE FILES
+# ============================================================================
+*.tmp
+*.temp
+*.log
+*.cache
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ============================================================================
+# IDE & EDITOR
+# ============================================================================
 .vscode/settings.json
 .vscode/launch.json
+.vscode/.ropeproject
 .idea/
 *.swp
 *.swo
 *~
+.spyderproject
+.spyproject
 
-# Jupyter Notebook
+# ============================================================================
+# JUPYTER NOTEBOOK
+# ============================================================================
 .ipynb_checkpoints
+*.ipynb
 
-# pyenv
-.python-version
+# ============================================================================
+# STREAMLIT
+# ============================================================================
+.streamlit/secrets.toml
+.streamlit/config.toml
 
-# Temporary files
-*.tmp
-*.temp
-*.log
-.DS_Store
-Thumbs.db
+# ============================================================================
+# MACHINE LEARNING & DATA SCIENCE
+# ============================================================================
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+*.npz
+models/trained_*
+models/checkpoints/
+wandb/
+mlruns/
+.mlflow/
 
-# OS specific
+# ============================================================================
+# OS SPECIFIC
+# ============================================================================
+# macOS
 .DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
-ehthumbs.db
-Thumbs.db
+.AppleDouble
+.LSOverride
 
-# Backup files
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ============================================================================
+# BACKUP & ARCHIVE FILES
+# ============================================================================
 *.bak
 *.backup
+*.old
+*.orig
+*.save
+*.swp
+*.swo
 *~
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# ============================================================================
+# DOCUMENTATION BUILD
+# ============================================================================
+docs/_build/
+docs/build/
+site/
+.mkdocs/
+
+# ============================================================================
+# TESTING
+# ============================================================================
+.tox/
+.nox/
+.coverage
+.pytest_cache/
+.hypothesis/
+htmlcov/
+.coverage.*
+coverage.xml
+*.cover
+.cache
+nosetests.xml
+
+# ============================================================================
+# PACKAGE MANAGERS
+# ============================================================================
+# pip
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Poetry
+poetry.lock
+
+# Pipenv
+Pipfile.lock
+
+# ============================================================================
+# ENVIRONMENT TOOLS
+# ============================================================================
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# conda
+.conda/
+
+# ============================================================================
+# PROJECT SPECIFIC IGNORES
+# ============================================================================
+
+# Reorganization scripts (temporary)
+reorganize_project.ps1
+
+# Large individual files that might be generated
+scalability_test_results_*.json
+individual_dream_analysis_*.csv
+
+# Temporary analysis outputs
+temp_analysis/
+scratch/
+experiments/
+
+# Model downloads
+models/downloaded/
+models/cache/
+
+# Large translation files
+translations/full_datasets/
+translations/raw_data/
+
+# ============================================================================
+# KEEP THESE IMPORTANT FILES (Exceptions)
+# ============================================================================
+# Keep essential config and documentation
+!README.md
+!requirements.txt
+!.env.example
+!docs/**/*.md
+!config/**/*.py
+!src/**/*.py
+!scripts/**/*.py
+!tests/**/*.py
+!apps/**/*.py
+
+# Keep small sample/example files
+!**/sample_*.json
+!**/example_*.csv
+!**/schema_*.json
+!**/config_*.yaml
+!**/template_*.md
+
+# Keep project structure files
+!**/__init__.py
+!**/README.md

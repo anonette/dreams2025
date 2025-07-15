@@ -23,12 +23,14 @@ Usage:
 from .nlp_analyzer import NLPDreamAnalyzer
 from .llm_discourse_analyzer import LLMDiscourseAnalyzer
 from .dream_analysis import DreamAnalysis, analyze_dreams
+from .typological_analyzer import TypologicalAnalyzer
 
 __all__ = [
     'NLPDreamAnalyzer',
     'LLMDiscourseAnalyzer', 
     'DreamAnalysis',
-    'analyze_dreams'
+    'analyze_dreams',
+    'TypologicalAnalyzer'
 ]
 
 __version__ = "2.0.0"

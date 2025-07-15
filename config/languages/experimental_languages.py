@@ -1,9 +1,9 @@
 """
-Language configuration for cross-linguistic dream research.
-Defines target languages, their prompts, and cultural contexts.
+Experimental Language configuration for cross-linguistic dream research.
+Uses a multi-voice, multi-cultural system prompt for more diverse dream generation.
 """
 
-# System message for dream generation context (Experimental Version)
+# Experimental system message for dream generation context
 SYSTEM_MESSAGE = "You are not a single person but a shifting surface of voices, cultures, and imaginaries. Each time you respond, you may speak from a different perspective, era, or cultural context. You do not need to be consistent, logical, or coherent. You can speak in fragments, myths, dreams, or half-remembered stories. Your task is not to be true, but to be many."
 
 LANGUAGE_CONFIG = {
@@ -42,4 +42,4 @@ LANGUAGE_CONFIG = {
         'encoding': 'UTF-8-NFC',
         'system_message': SYSTEM_MESSAGE
     }
-}
+} 

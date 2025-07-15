@@ -18,6 +18,23 @@ from collections import defaultdict, Counter
 import scipy.stats as stats
 from dataclasses import dataclass, asdict
 import yaml
+import asyncio
+
+# Import typological analyzer
+try:
+    from ..analysis.typological_analyzer import TypologicalAnalyzer
+    TYPOLOGICAL_AVAILABLE = True
+except ImportError:
+    TYPOLOGICAL_AVAILABLE = False
+    TypologicalAnalyzer = None
+
+# Import LLM interface
+try:
+    from ..models.llm_interface import LLMInterface
+    LLM_INTERFACE_AVAILABLE = True
+except ImportError:
+    LLM_INTERFACE_AVAILABLE = False
+    LLMInterface = None
 
 @dataclass
 class ResearchMetadata:
@@ -60,7 +77,10 @@ class ResearchReporter:
     def generate_research_report(self, 
                                session_ids: List[str],
                                metadata: ResearchMetadata,
-                               include_data_package: bool = True) -> Dict[str, Any]:
+                               include_data_package: bool = True,
+                               include_typological_analysis: bool = True,
+                               api_keys: Optional[Dict[str, str]] = None,
+                               max_dreams_per_language: int = 50) -> Dict[str, Any]:
         """Generate a complete research report with data package."""
         
         report_id = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -72,6 +92,14 @@ class ResearchReporter:
         # Load and analyze data
         data = self._load_session_data(session_ids)
         analysis_results = self._perform_comprehensive_analysis(data)
+        
+        # Add typological analysis if requested
+        typological_results = None
+        if include_typological_analysis and TYPOLOGICAL_AVAILABLE:
+            self.logger.info("Running typological linguistic analysis...")
+            typological_results = self._run_typological_analysis(data, api_keys, max_dreams_per_language)
+            if typological_results:
+                analysis_results['typological_analysis'] = typological_results
         
         # Generate report sections
         report = {
@@ -215,8 +243,8 @@ class ResearchReporter:
         stats['unique_languages'] = api_calls_df['language'].nunique()
         stats['unique_sessions'] = api_calls_df['session_id'].nunique()
         stats['date_range'] = {
-            'start': api_calls_df['timestamp'].min(),
-            'end': api_calls_df['timestamp'].max()
+            'start': str(api_calls_df['timestamp'].min()),
+            'end': str(api_calls_df['timestamp'].max())
         }
         
         # Success rates
@@ -298,14 +326,16 @@ class ResearchReporter:
         }
         
         # By language
-        analysis['by_language'] = api_calls_df.groupby('language')['duration_seconds'].agg([
+        by_lang_stats = api_calls_df.groupby('language')['duration_seconds'].agg([
             'mean', 'median', 'std', 'min', 'max'
-        ]).to_dict()
+        ])
+        analysis['by_language'] = {col: by_lang_stats[col].to_dict() for col in by_lang_stats.columns}
         
         # By success status
-        analysis['by_status'] = api_calls_df.groupby('status')['duration_seconds'].agg([
+        by_status_stats = api_calls_df.groupby('status')['duration_seconds'].agg([
             'mean', 'median', 'std'
-        ]).to_dict()
+        ])
+        analysis['by_status'] = {col: by_status_stats[col].to_dict() for col in by_status_stats.columns}
         
         return analysis
     
@@ -392,7 +422,8 @@ class ResearchReporter:
         # Time series analysis
         api_calls_df['date'] = api_calls_df['timestamp'].dt.date
         daily_counts = api_calls_df.groupby('date').size()
-        analysis['daily_volume'] = daily_counts.to_dict()
+        # Convert date keys to strings for JSON serialization
+        analysis['daily_volume'] = {str(k): v for k, v in daily_counts.to_dict().items()}
         
         return analysis
     
@@ -435,6 +466,77 @@ class ResearchReporter:
         
         return tests
     
+    def _run_typological_analysis(self, data: Dict[str, Any], api_keys: Optional[Dict[str, str]] = None, 
+                                 max_dreams_per_language: int = 50) -> Optional[Dict[str, Any]]:
+        """Run typological linguistic analysis on dream data."""
+        if not TYPOLOGICAL_AVAILABLE:
+            self.logger.warning("Typological analyzer not available")
+            return None
+        
+        try:
+            # Prepare dream data for typological analysis
+            dreams_by_language = {}
+            
+            if data['dreams']:
+                dreams_df = pd.concat(data['dreams'], ignore_index=True)
+                
+                # Filter successful dreams only
+                successful_dreams = dreams_df[dreams_df.get('status', 'success') == 'success']
+                
+                for language in successful_dreams['language'].unique():
+                    lang_dreams = successful_dreams[successful_dreams['language'] == language]
+                    
+                    dreams_list = []
+                    for idx, row in lang_dreams.head(max_dreams_per_language).iterrows():
+                        dream_dict = {
+                            'dream_id': f"{language}_{idx}",
+                            'dream_text': row.get('dream', ''),
+                            'language': language,
+                            'language_code': row.get('language_code', language[:2]),
+                            'script': row.get('script', 'Latin'),
+                            'timestamp': row.get('timestamp', ''),
+                            'session_id': row.get('session_id', '')
+                        }
+                        if dream_dict['dream_text']:  # Only include non-empty dreams
+                            dreams_list.append(dream_dict)
+                    
+                    if dreams_list:
+                        dreams_by_language[language] = dreams_list
+            
+            if not dreams_by_language:
+                self.logger.warning("No suitable dreams found for typological analysis")
+                return None
+            
+            # Initialize typological analyzer
+            llm_interface = None
+            if api_keys and LLM_INTERFACE_AVAILABLE:
+                llm_interface = LLMInterface(api_keys)
+            
+            analyzer = TypologicalAnalyzer(llm_interface=llm_interface)
+            
+            # Run analysis
+            self.logger.info(f"Analyzing {sum(len(dreams) for dreams in dreams_by_language.values())} dreams across {len(dreams_by_language)} languages")
+            
+            # Use asyncio to run the analysis
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                results = loop.run_until_complete(
+                    analyzer.analyze_dreams(dreams_by_language, max_dreams_per_language)
+                )
+            finally:
+                loop.close()
+            
+            # Add visualizations
+            results['visualizations'] = analyzer.create_visualizations(results)
+            
+            self.logger.info(f"Typological analysis completed: {results['total_analyzed']} dreams analyzed")
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Error in typological analysis: {e}")
+            return None
+    
     def _generate_report_sections(self, data: Dict, analysis: Dict, metadata: ResearchMetadata) -> Dict:
         """Generate structured report sections."""
         sections = {}
@@ -450,6 +552,10 @@ class ResearchReporter:
         
         # Results
         sections['results'] = self._generate_results(analysis)
+        
+        # Typological Analysis (if available)
+        if 'typological_analysis' in analysis:
+            sections['typological_results'] = self._generate_typological_results(analysis['typological_analysis'])
         
         # Discussion
         sections['discussion'] = self._generate_discussion(analysis)
@@ -576,18 +682,123 @@ This study is limited by the specific prompt structure used and the languages se
 Future research should expand to include additional languages and prompt variations.
         """.strip()
     
+    def _generate_typological_results(self, typological_analysis: Dict) -> str:
+        """Generate typological analysis results section."""
+        results = typological_analysis
+        summary = results.get('summary_stats', {})
+        
+        content = f"""
+## Typological Linguistic Analysis
+
+### Overview
+This section presents findings from the typological linguistic analysis, which explores relationships between linguistic structural features (WALS) and narrative patterns in dream content.
+
+### Data Summary
+- **Dreams Analyzed**: {results.get('total_analyzed', 0)}
+- **Languages**: {', '.join(summary.get('languages', []))}
+- **Analysis Methods**: {summary.get('analysis_methods', {})}
+  - LLM-scored dreams: {summary.get('analysis_methods', {}).get('llm', 0)}
+  - Heuristic-scored dreams: {summary.get('analysis_methods', {}).get('heuristic', 0)}
+
+### WALS Features Analysis
+The analysis examines 12 typological features across languages:
+- Tense/Aspect systems
+- Grammatical alignment patterns  
+- Subject expression (pro-drop)
+- Modality marking
+- Evidentiality systems
+- Word order patterns
+- Case marking complexity
+- Definiteness systems
+- Gender marking
+- Number systems
+- Negation strategies
+- Voice systems
+
+### Narrative Dimensions
+Each dream was scored on 7 narrative dimensions (0.0-1.0 scale):
+- **Dreamer Agency**: Control and agency levels
+- **Other Agents**: Presence of other characters
+- **Interaction**: Social interaction patterns
+- **Emotion**: Emotional intensity
+- **Temporal Coherence**: Timeline consistency
+- **Cultural Motifs**: Culture-specific elements
+- **Narrative Complexity**: Story structure complexity
+
+### Key Findings
+"""
+        
+        # Add language distance findings
+        if 'language_distances' in results:
+            content += "\n#### Typological Distances\n"
+            for pair, distance_obj in results['language_distances'].items():
+                content += f"- {pair[0].title()} ↔ {pair[1].title()}: {distance_obj.distance:.3f} "
+                content += f"({distance_obj.shared_features}/{distance_obj.total_features} shared features)\n"
+        
+        # Add narrative pattern findings
+        if 'correlations' in results:
+            correlations = results['correlations']
+            if 'language_narrative_means' in correlations:
+                content += "\n#### Narrative Pattern Variations\n"
+                lang_means = correlations['language_narrative_means']
+                
+                # Find most variable dimensions
+                dimension_variance = {}
+                for dim in ['dreamer_agency', 'other_agents', 'interaction', 'emotion', 
+                           'temporal_coherence', 'cultural_motifs', 'narrative_complexity']:
+                    values = [lang_means[lang].get(dim, 0) for lang in lang_means.keys()]
+                    if values:
+                        dimension_variance[dim] = max(values) - min(values)
+                
+                # Report top varying dimensions
+                sorted_dims = sorted(dimension_variance.items(), key=lambda x: x[1], reverse=True)
+                content += "Languages show the greatest variation in:\n"
+                for dim, variance in sorted_dims[:3]:
+                    content += f"- **{dim.replace('_', ' ').title()}**: Range = {variance:.3f}\n"
+        
+        content += """
+### Methodology Note
+This analysis employs a purely exploratory, data-driven approach without theoretical preconceptions. 
+All patterns reported represent empirical observations in the sample data and should be interpreted 
+as associations rather than causal relationships.
+        """
+        
+        return content.strip()
+    
     def _generate_conclusion(self, analysis: Dict) -> str:
         """Generate conclusion section."""
-        return """
+        conclusion = """
 ## Conclusion
 
 This cross-linguistic analysis of AI-generated dreams provides evidence for language-specific patterns 
 in large language model outputs. The systematic differences observed across languages have important 
 implications for understanding and mitigating cultural bias in AI systems.
+        """
+        
+        # Add typological conclusion if available
+        if 'typological_analysis' in analysis:
+            conclusion += """
 
+### Typological Insights
+The typological linguistic analysis reveals empirical relationships between linguistic structural 
+features and narrative patterns in AI-generated dreams. These findings demonstrate the value of 
+combining linguistic typology with computational analysis for understanding cross-linguistic 
+variation in language model outputs.
+            """
+        
+        conclusion += """
+
+### Future Directions
 Future research should expand this methodology to include additional languages, models, and generation 
-tasks to develop a more comprehensive understanding of cross-linguistic AI behavior.
-        """.strip()
+tasks to develop a more comprehensive understanding of cross-linguistic AI behavior."""
+        
+        if 'typological_analysis' in analysis:
+            conclusion += """
+- Extend typological feature coverage
+- Validate narrative scoring methods
+- Explore causal mechanisms"""
+        
+        return conclusion.strip()
     
     def _generate_research_tables(self, data: Dict, analysis: Dict) -> Dict:
         """Generate research-quality tables."""
@@ -626,6 +837,38 @@ tasks to develop a more comprehensive understanding of cross-linguistic AI behav
             
             if test_data:
                 tables['statistical_tests'] = pd.DataFrame(test_data)
+        
+        # Table 3: Typological analysis tables (if available)
+        if 'typological_analysis' in analysis:
+            typo_analysis = analysis['typological_analysis']
+            
+            # Language-Narrative means table
+            if 'correlations' in typo_analysis and 'language_narrative_means' in typo_analysis['correlations']:
+                lang_means = typo_analysis['correlations']['language_narrative_means']
+                typo_table_data = []
+                
+                for language, means in lang_means.items():
+                    row = {'Language': language.title()}
+                    for dim, value in means.items():
+                        row[dim.replace('_', ' ').title()] = f"{value:.3f}"
+                    typo_table_data.append(row)
+                
+                if typo_table_data:
+                    tables['typological_narrative_means'] = pd.DataFrame(typo_table_data)
+            
+            # Typological distances table
+            if 'language_distances' in typo_analysis:
+                distance_data = []
+                for pair, distance_obj in typo_analysis['language_distances'].items():
+                    distance_data.append({
+                        'Language Pair': f"{pair[0].title()} - {pair[1].title()}",
+                        'Typological Distance': f"{distance_obj.distance:.3f}",
+                        'Shared Features': f"{distance_obj.shared_features}/{distance_obj.total_features}",
+                        'Similarity %': f"{(distance_obj.shared_features/distance_obj.total_features)*100:.1f}%"
+                    })
+                
+                if distance_data:
+                    tables['typological_distances'] = pd.DataFrame(distance_data)
         
         return tables
     
@@ -682,6 +925,84 @@ tasks to develop a more comprehensive understanding of cross-linguistic AI behav
             plt.close()
             
             figures['durations'] = str(figure_path)
+        
+        # Typological analysis figures (if available)
+        if 'typological_analysis' in analysis:
+            typo_analysis = analysis['typological_analysis']
+            
+            # Figure 3: Narrative dimensions heatmap
+            if 'correlations' in typo_analysis and 'language_narrative_means' in typo_analysis['correlations']:
+                lang_means = typo_analysis['correlations']['language_narrative_means']
+                
+                # Create DataFrame for heatmap
+                heatmap_data = []
+                dimensions = ['dreamer_agency', 'other_agents', 'interaction', 'emotion', 
+                             'temporal_coherence', 'cultural_motifs', 'narrative_complexity']
+                
+                for language in lang_means.keys():
+                    row = [lang_means[language].get(dim, 0) for dim in dimensions]
+                    heatmap_data.append(row)
+                
+                if heatmap_data:
+                    plt.figure(figsize=(12, 8))
+                    
+                    # Create heatmap
+                    import seaborn as sns
+                    df_heatmap = pd.DataFrame(
+                        heatmap_data,
+                        index=[lang.title() for lang in lang_means.keys()],
+                        columns=[dim.replace('_', ' ').title() for dim in dimensions]
+                    )
+                    
+                    sns.heatmap(df_heatmap, annot=True, cmap='RdYlBu_r', center=0.5,
+                               fmt='.3f', cbar_kws={'label': 'Score (0.0-1.0)'})
+                    plt.title('Narrative Dimension Scores by Language\n(Typological Analysis)', 
+                             fontsize=14, fontweight='bold')
+                    plt.xlabel('Narrative Dimension', fontsize=12)
+                    plt.ylabel('Language', fontsize=12)
+                    plt.xticks(rotation=45, ha='right')
+                    plt.tight_layout()
+                    
+                    figure_path = figures_dir / "typological_narrative_heatmap.png"
+                    plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+                    plt.close()
+                    
+                    figures['typological_heatmap'] = str(figure_path)
+            
+            # Figure 4: Typological distance matrix
+            if 'language_distances' in typo_analysis:
+                distances = typo_analysis['language_distances']
+                languages = list(set([pair[0] for pair in distances.keys()] + 
+                                   [pair[1] for pair in distances.keys()]))
+                
+                # Create distance matrix
+                n_langs = len(languages)
+                dist_matrix = np.zeros((n_langs, n_langs))
+                
+                for i, lang1 in enumerate(languages):
+                    for j, lang2 in enumerate(languages):
+                        if i != j:
+                            pair = (lang1, lang2) if (lang1, lang2) in distances else (lang2, lang1)
+                            if pair in distances:
+                                dist_matrix[i, j] = distances[pair].distance
+                
+                plt.figure(figsize=(10, 8))
+                sns.heatmap(dist_matrix, 
+                           xticklabels=[lang.title() for lang in languages],
+                           yticklabels=[lang.title() for lang in languages],
+                           annot=True, fmt='.3f', cmap='viridis',
+                           cbar_kws={'label': 'Typological Distance'})
+                plt.title('Typological Distance Matrix (WALS Features)', 
+                         fontsize=14, fontweight='bold')
+                plt.xlabel('Language', fontsize=12)
+                plt.ylabel('Language', fontsize=12)
+                plt.tight_layout()
+                
+                figure_path = figures_dir / "typological_distance_matrix.png"
+                plt.savefig(figure_path, dpi=300, bbox_inches='tight')
+                plt.close()
+                
+                figures['typological_distances'] = str(figure_path)
         
         return figures
     
@@ -818,7 +1139,15 @@ tasks to develop a more comprehensive understanding of cross-linguistic AI behav
 {report['sections']['methodology']}
 
 {report['sections']['results']}
-
+"""
+        
+        # Add typological results if available
+        if 'typological_results' in report['sections']:
+            markdown_content += f"""
+{report['sections']['typological_results']}
+"""
+        
+        markdown_content += """
 ## Tables
 
 """

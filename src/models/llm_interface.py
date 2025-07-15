@@ -52,55 +52,96 @@ class LLMInterface:
         if 'anthropic' in self.api_keys and ANTHROPIC_AVAILABLE:
             self.anthropic_client = anthropic.Anthropic(api_key=self.api_keys['anthropic'])
         # OpenRouter uses HTTP API, no client needed
+    
+    def setup_google_gemini_client(self):
+        """Setup OpenAI client to use Google's Gemini API endpoint."""
+        if OPENAI_AVAILABLE and 'openai' in self.api_keys:
+            # Create OpenAI client configured for Google's endpoint
+            self.openai_client = openai.OpenAI(
+                api_key=self.api_keys['openai'],  # This will be the Gemini API key
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+            )
         
-    async def generate_dream(self, prompt: str, config: GenerationConfig) -> str:
+    async def generate_dream(self, prompt: str, config: GenerationConfig, system_message: Optional[str] = None) -> str:
         """Generate dream narrative using specified model and parameters."""
         try:
-            if 'gpt' in config.model.lower():
-                return self._generate_openai(prompt, config)
+            if 'gemini' in config.model.lower():
+                return await self._generate_openai(prompt, config, system_message)  # Use OpenAI-compatible endpoint
+            elif 'gpt' in config.model.lower():
+                return await self._generate_openai(prompt, config, system_message)
             elif 'claude' in config.model.lower():
-                return await self._generate_anthropic(prompt, config)
+                return await self._generate_anthropic(prompt, config, system_message)
             elif 'openrouter' in config.model.lower() or any(x in config.model.lower() for x in ['mistral', 'deepseek']):
-                return await self._generate_openrouter(prompt, config)
+                return await self._generate_openrouter(prompt, config, system_message)
             else:
                 raise ValueError(f"Unsupported model: {config.model}")
         except Exception as e:
             logging.error(f"Error generating dream: {e}")
-            return ""
+            raise e  # Re-raise to see the actual error
     
-    def _generate_openai(self, prompt: str, config: GenerationConfig) -> str:
-        """Generate using OpenAI models (openai>=1.0.0)."""
+    async def _generate_openai(self, prompt: str, config: GenerationConfig, system_message: Optional[str] = None) -> str:
+        """Generate using OpenAI models (openai>=1.0.0) or Google Gemini via OpenAI compatibility."""
         if not OPENAI_AVAILABLE:
             raise ImportError("OpenAI library not available. Install with: pip install openai")
         
-        # Prepare parameters, only include max_tokens if specified
-        params = {
-            "model": config.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": config.temperature,
-            "top_p": config.top_p,
-            "frequency_penalty": config.frequency_penalty,
-            "presence_penalty": config.presence_penalty
-        }
+        def _sync_call():
+            # Prepare messages with optional system message
+            messages = []
+            if system_message:
+                messages.append({"role": "system", "content": system_message})
+            messages.append({"role": "user", "content": prompt})
+            
+            # Prepare parameters, only include max_tokens if specified
+            params = {
+                "model": config.model,
+                "messages": messages,
+                "temperature": config.temperature,
+                "top_p": config.top_p,
+                "frequency_penalty": config.frequency_penalty,
+                "presence_penalty": config.presence_penalty
+            }
+            
+            # Only add max_tokens if it's specified
+            if config.max_tokens is not None:
+                params["max_tokens"] = config.max_tokens
+
+            # For Gemini, remove unsupported parameters
+            if 'gemini' in config.model.lower():
+                params.pop("frequency_penalty", None)
+                params.pop("presence_penalty", None)
+            
+            # Use custom client if available (for Gemini), otherwise use default OpenAI
+            if hasattr(self, 'openai_client') and self.openai_client:
+                response = self.openai_client.chat.completions.create(**params)
+            else:
+                response = openai.chat.completions.create(**params)
+            
+            choice = response.choices[0]
+            if choice.message.content is None:
+                logging.warning(f"Dream generation resulted in empty content. Finish reason: {choice.finish_reason}")
+                return ""
+            
+            return choice.message.content.strip()
         
-        # Only add max_tokens if it's specified
-        if config.max_tokens is not None:
-            params["max_tokens"] = config.max_tokens
-        
-        # Use the synchronous API for chat completions
-        response = openai.chat.completions.create(**params)
-        return response.choices[0].message.content.strip()
+        # Run the synchronous call in a thread pool to make it properly async
+        return await asyncio.to_thread(_sync_call)
     
-    async def _generate_anthropic(self, prompt: str, config: GenerationConfig) -> str:
+    async def _generate_anthropic(self, prompt: str, config: GenerationConfig, system_message: Optional[str] = None) -> str:
         """Generate using Anthropic Claude models."""
         if not ANTHROPIC_AVAILABLE:
             raise ImportError("Anthropic library not available. Install with: pip install anthropic")
         
+        # Prepare messages with optional system message
+        messages = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        messages.append({"role": "user", "content": prompt})
+        
         # Prepare parameters, only include max_tokens if specified
         params = {
             "model": config.model,
             "temperature": config.temperature,
-            "messages": [{"role": "user", "content": prompt}]
+            "messages": messages
         }
         
         # Only add max_tokens if it's specified
@@ -110,7 +151,7 @@ class LLMInterface:
         response = await self.anthropic_client.messages.create(**params)
         return response.content[0].text.strip()
 
-    async def _generate_openrouter(self, prompt: str, config: GenerationConfig) -> str:
+    async def _generate_openrouter(self, prompt: str, config: GenerationConfig, system_message: Optional[str] = None) -> str:
         """
         Generate using OpenRouter API (supports models like mistral, deepseek, etc).
         Requires 'openrouter' key in api_keys dict.
@@ -123,10 +164,16 @@ class LLMInterface:
             "Content-Type": "application/json"
         }
         
+        # Prepare messages with optional system message
+        messages = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        messages.append({"role": "user", "content": prompt})
+        
         # Prepare data, only include max_tokens if specified
         data = {
             "model": config.model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "temperature": config.temperature,
             "top_p": config.top_p
         }
