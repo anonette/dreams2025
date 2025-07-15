@@ -13,6 +13,7 @@ Models: Multiple models available through OpenRouter
 import asyncio
 import json
 import csv
+import sys
 import os
 import time
 import uuid
@@ -23,6 +24,9 @@ from typing import Dict, List, Any, Optional
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass
+# Add project root to Python path
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 # Load environment variables from .env file
 try:
@@ -39,7 +43,7 @@ from src.models.llm_interface import LLMInterface, GenerationConfig
 @dataclass
 class OpenRouterMultiModelConfig:
     """Configuration for OpenRouter multi-model batch generation"""
-    version: str = "OpenRouter_MultiModel_v1.0"
+    version: str = "OpenRouter_MultiModel_v2.0_Concurrent"
     system_name: str = "OpenRouterMultiModelGenerator"
     session_prefix: str = "OPENROUTER_"
     
@@ -57,7 +61,13 @@ class OpenRouterMultiModelConfig:
     dreams_per_language: int = 1000
     total_target_dreams: int = 5000  # 1000 × 5 languages
     use_system_prompt: bool = True  # Use system message like GPT-4o setup
-    scenario_type: str = "Multi-Model Dream Generation via OpenRouter with GPT-4o Parameters"
+    scenario_type: str = "Multi-Model Dream Generation via OpenRouter with GPT-4o Parameters (Concurrent)"
+    
+    # Concurrency configuration
+    concurrent_dreams_per_language: int = 8  # Number of dreams to generate concurrently per language
+    concurrent_languages_per_model: bool = True  # Process all languages concurrently per model
+    max_concurrent_requests: int = 40  # Global limit (8 dreams × 5 languages)
+    dream_batch_size: int = 25  # Process dreams in smaller concurrent batches for progress tracking
     
     def __post_init__(self):
         if self.available_models is None:
@@ -267,6 +277,44 @@ class OpenRouterMultiModelGenerator:
             'word_count': word_count
         }
     
+    async def generate_single_dream_with_semaphore(self, semaphore: asyncio.Semaphore, model: str, language: str, dream_number: int) -> Dict[str, Any]:
+        """Generate a single dream with semaphore control for concurrency"""
+        async with semaphore:
+            return await self.generate_single_dream(model, language, dream_number)
+    
+    async def generate_dreams_batch_concurrent(self, model: str, language: str, dream_numbers: List[int]) -> List[Dict[str, Any]]:
+        """Generate a batch of dreams concurrently with controlled concurrency"""
+        semaphore = asyncio.Semaphore(self.config.concurrent_dreams_per_language)
+        
+        # Create tasks for concurrent generation
+        tasks = [
+            self.generate_single_dream_with_semaphore(semaphore, model, language, dream_num)
+            for dream_num in dream_numbers
+        ]
+        
+        # Execute all tasks concurrently
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Handle any exceptions
+        processed_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                print(f"  ❌ {model} - {language} dream {dream_numbers[i]} failed with exception: {result}")
+                # Create error result
+                processed_results.append({
+                    'call_id': str(uuid.uuid4()),
+                    'model': model,
+                    'language': language,
+                    'status': 'error',
+                    'duration': 0,
+                    'char_count': 0,
+                    'word_count': 0
+                })
+            else:
+                processed_results.append(result)
+        
+        return processed_results
+    
     def get_model_language_progress(self, model: str, language: str) -> Dict:
         """Get progress for a specific model and language"""
         existing_dreams = self.dreams_data.get(model, {}).get(language, [])
@@ -359,29 +407,40 @@ class OpenRouterMultiModelGenerator:
         # Setup directory
         lang_dir = self.setup_model_language_directory(model, language)
         
-        # Generate remaining dreams
+        # Generate remaining dreams using concurrent batches
         batch_start = time.time()
         results = []
         
         start_number = progress['completed'] + 1
         end_number = start_number + progress['remaining']
+        remaining_dreams = list(range(start_number, end_number))
         
-        for dream_num in range(start_number, end_number):
+        print(f"🚀 Using concurrent generation: {self.config.concurrent_dreams_per_language} dreams at a time")
+        
+        # Process dreams in concurrent batches
+        batch_size = self.config.dream_batch_size
+        for i in range(0, len(remaining_dreams), batch_size):
+            batch_dreams = remaining_dreams[i:i + batch_size]
+            
             try:
-                result = await self.generate_single_dream(model, language, dream_num)
-                results.append(result)
+                print(f"  🔄 Processing concurrent batch {i//batch_size + 1}: dreams {batch_dreams[0]}-{batch_dreams[-1]}")
                 
-                # Small delay between requests to respect rate limits
-                await asyncio.sleep(0.2)
+                # Generate this batch concurrently
+                batch_results = await self.generate_dreams_batch_concurrent(model, language, batch_dreams)
+                results.extend(batch_results)
                 
-                # Progress updates every 50 dreams
-                if (dream_num - start_number + 1) % 50 == 0:
-                    successful = len([r for r in results if r['status'] == 'success'])
-                    remaining_count = end_number - dream_num - 1
-                    print(f"  📊 Progress: {dream_num - start_number + 1}/{progress['remaining']} ({successful} successful, {remaining_count} remaining)")
-                    
-                    # Save intermediate progress
-                    await self.save_model_language_data(model, language, lang_dir)
+                # Progress update
+                successful = len([r for r in results if r['status'] == 'success'])
+                completed_so_far = len(results)
+                remaining_count = len(remaining_dreams) - completed_so_far
+                print(f"  📊 Progress: {completed_so_far}/{len(remaining_dreams)} ({successful} successful, {remaining_count} remaining)")
+                
+                # Save intermediate progress every batch
+                await self.save_model_language_data(model, language, lang_dir)
+                
+                # Small delay between batches to be respectful to the API
+                if remaining_count > 0:  # Don't delay after the last batch
+                    await asyncio.sleep(1.0)
                     
             except KeyboardInterrupt:
                 print(f"\n🛑 Interrupted during {model} - {language} generation")
@@ -389,7 +448,7 @@ class OpenRouterMultiModelGenerator:
                 await self.save_model_language_data(model, language, lang_dir)
                 raise
             except Exception as e:
-                print(f"❌ Error in {model} - {language} generation: {e}")
+                print(f"❌ Error in {model} - {language} batch generation: {e}")
                 continue
         
         batch_duration = time.time() - batch_start
@@ -432,37 +491,110 @@ class OpenRouterMultiModelGenerator:
             'resumed': progress['completed'] > 0
         }
     
-    async def generate_all_models_and_languages(self) -> Dict[str, Any]:
-        """Generate dreams for all models and languages"""
+    async def generate_model_all_languages_concurrent(self, model: str) -> Dict[str, Any]:
+        """Generate dreams for all languages concurrently for a single model"""
+        print(f"\n🤖 Starting model: {model}")
         
-        print(f"🚀 OPENROUTER MULTI-MODEL DREAM GENERATION")
-        print(f"🎯 Generating {self.config.total_target_dreams} dreams per model across {len(LANGUAGE_CONFIG)} languages")
-        print(f"🤖 Models: {len(self.models)} models")
-        print(f"📁 Logs directory: {self.base_logs_dir}/")
-        print(f"{'='*80}")
-        
-        results = {}
-        
-        for model in self.models:
-            results[model] = {}
-            print(f"\n🤖 Starting model: {model}")
+        if self.config.concurrent_languages_per_model:
+            print(f"🚀 Processing all {len(LANGUAGE_CONFIG)} languages concurrently for {model}")
             
+            # Create tasks for all languages
+            language_tasks = []
+            for language in LANGUAGE_CONFIG.keys():
+                task = self.generate_model_language_batch(model, language)
+                language_tasks.append((language, task))
+            
+            # Execute all language tasks concurrently
+            results = {}
+            try:
+                # Use asyncio.gather to run all languages concurrently
+                language_results = await asyncio.gather(
+                    *[task for _, task in language_tasks], 
+                    return_exceptions=True
+                )
+                
+                # Process results
+                for i, (language, _) in enumerate(language_tasks):
+                    result = language_results[i]
+                    if isinstance(result, Exception):
+                        print(f"❌ Error with {model} - {language}: {result}")
+                        results[language] = {
+                            'model': model,
+                            'language': language,
+                            'successful_dreams': 0,
+                            'failed_dreams': 0,
+                            'error': str(result)
+                        }
+                    else:
+                        results[language] = result
+                        
+            except KeyboardInterrupt:
+                print(f"\n🛑 Generation interrupted during {model}")
+                # Return partial results
+                for language in LANGUAGE_CONFIG.keys():
+                    if language not in results:
+                        results[language] = {
+                            'model': model,
+                            'language': language,
+                            'successful_dreams': 0,
+                            'failed_dreams': 0,
+                            'error': 'Interrupted'
+                        }
+                return results
+        else:
+            # Sequential processing (fallback)
+            print(f"🔄 Processing languages sequentially for {model}")
+            results = {}
             for language in LANGUAGE_CONFIG.keys():
                 try:
                     result = await self.generate_model_language_batch(model, language)
-                    results[model][language] = result
+                    results[language] = result
                 except KeyboardInterrupt:
                     print(f"\n🛑 Generation interrupted")
                     return results
                 except Exception as e:
                     print(f"❌ Error with {model} - {language}: {e}")
-                    results[model][language] = {
+                    results[language] = {
                         'model': model,
                         'language': language,
                         'successful_dreams': 0,
                         'failed_dreams': 0,
                         'error': str(e)
                     }
+        
+        return results
+
+    async def generate_all_models_and_languages(self) -> Dict[str, Any]:
+        """Generate dreams for all models and languages"""
+        
+        print(f"🚀 OPENROUTER MULTI-MODEL DREAM GENERATION")
+        print(f"🎯 Generating {self.config.total_target_dreams} dreams per model across {len(LANGUAGE_CONFIG)} languages")
+        print(f"🤖 Models: {len(self.models)} models")
+        print(f"⚡ Concurrency: {self.config.concurrent_dreams_per_language} dreams per language, languages {'concurrent' if self.config.concurrent_languages_per_model else 'sequential'}")
+        print(f"📁 Logs directory: {self.base_logs_dir}/")
+        print(f"{'='*80}")
+        
+        results = {}
+        
+        for model in self.models:
+            try:
+                model_results = await self.generate_model_all_languages_concurrent(model)
+                results[model] = model_results
+            except KeyboardInterrupt:
+                print(f"\n🛑 Generation interrupted")
+                return results
+            except Exception as e:
+                print(f"❌ Error with model {model}: {e}")
+                results[model] = {
+                    language: {
+                        'model': model,
+                        'language': language,
+                        'successful_dreams': 0,
+                        'failed_dreams': 0,
+                        'error': str(e)
+                    }
+                    for language in LANGUAGE_CONFIG.keys()
+                }
         
         # Generate summary
         await self.save_global_summary(results)
