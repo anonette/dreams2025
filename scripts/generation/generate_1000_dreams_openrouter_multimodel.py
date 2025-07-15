@@ -33,7 +33,7 @@ except ImportError:
     pass
 
 # Import the configuration and LLM interface
-from src.config.languages import LANGUAGE_CONFIG
+from config.languages.optimized_dream_languages import LANGUAGE_CONFIG
 from src.models.llm_interface import LLMInterface, GenerationConfig
 
 @dataclass
