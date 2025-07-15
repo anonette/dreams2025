@@ -65,16 +65,20 @@ class LLMInterface:
     async def generate_dream(self, prompt: str, config: GenerationConfig, system_message: Optional[str] = None) -> str:
         """Generate dream narrative using specified model and parameters."""
         try:
-            if 'gemini' in config.model.lower():
+            # Route models based on their provider prefix or characteristics
+            if 'gemini' in config.model.lower() and not config.model.startswith(('google/', 'openai/')):
                 return await self._generate_openai(prompt, config, system_message)  # Use OpenAI-compatible endpoint
-            elif 'gpt' in config.model.lower():
-                return await self._generate_openai(prompt, config, system_message)
-            elif 'claude' in config.model.lower():
-                return await self._generate_anthropic(prompt, config, system_message)
+            elif config.model.startswith('openai/') or 'gpt' in config.model.lower():
+                return await self._generate_openrouter(prompt, config, system_message)  # OpenRouter for OpenAI models
+            elif config.model.startswith('anthropic/') or 'claude' in config.model.lower():
+                return await self._generate_openrouter(prompt, config, system_message)  # OpenRouter for Anthropic models
+            elif any(config.model.startswith(prefix) for prefix in ['mistralai/', 'google/', 'meta-llama/', 'qwen/', 'deepseek/']):
+                return await self._generate_openrouter(prompt, config, system_message)  # OpenRouter for other providers
             elif 'openrouter' in config.model.lower() or any(x in config.model.lower() for x in ['mistral', 'deepseek']):
                 return await self._generate_openrouter(prompt, config, system_message)
             else:
-                raise ValueError(f"Unsupported model: {config.model}")
+                # Default to OpenRouter for unknown models (likely they're available there)
+                return await self._generate_openrouter(prompt, config, system_message)
         except Exception as e:
             logging.error(f"Error generating dream: {e}")
             raise e  # Re-raise to see the actual error
