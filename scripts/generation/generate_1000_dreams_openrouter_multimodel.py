@@ -39,6 +39,7 @@ except ImportError:
 # Import the configuration and LLM interface
 from config.languages.optimized_dream_languages import LANGUAGE_CONFIG
 from src.models.llm_interface import LLMInterface, GenerationConfig
+from config.models.token_tracking import TokenTracker
 
 @dataclass
 class OpenRouterMultiModelConfig:
@@ -64,10 +65,10 @@ class OpenRouterMultiModelConfig:
     scenario_type: str = "Multi-Model Dream Generation via OpenRouter with GPT-4o Parameters (Concurrent)"
     
     # Concurrency configuration
-    concurrent_dreams_per_language: int = 8  # Number of dreams to generate concurrently per language
+    concurrent_dreams_per_language: int = 12  # Number of dreams to generate concurrently per language
     concurrent_languages_per_model: bool = True  # Process all languages concurrently per model
-    max_concurrent_requests: int = 40  # Global limit (8 dreams × 5 languages)
-    dream_batch_size: int = 25  # Process dreams in smaller concurrent batches for progress tracking
+    max_concurrent_requests: int = 60  # Global limit (12 dreams × 5 languages)
+    dream_batch_size: int = 30  # Process dreams in smaller concurrent batches for progress tracking
     
     def __post_init__(self):
         if self.available_models is None:
@@ -88,6 +89,9 @@ class OpenRouterMultiModelGenerator:
     def __init__(self, api_keys: Dict[str, str], selected_models: List[str] = None):
         self.config = OpenRouterMultiModelConfig()
         self.llm_interface = LLMInterface(api_keys)
+        
+        # Initialize token tracker
+        self.token_tracker = TokenTracker()
         
         # Set models to use
         if selected_models:
@@ -180,6 +184,15 @@ class OpenRouterMultiModelGenerator:
             end_time = time.time()
             duration = end_time - start_time
             status = 'success'
+            
+            # Track token usage
+            token_info = self.token_tracker.track_usage(
+                model=model,
+                language=language,
+                prompt=prompt,
+                response=dream_content,
+                system_message=system_message or ""
+            )
             
             # Track timing
             self.call_times.append(end_time)
@@ -429,11 +442,20 @@ class OpenRouterMultiModelGenerator:
                 batch_results = await self.generate_dreams_batch_concurrent(model, language, batch_dreams)
                 results.extend(batch_results)
                 
-                # Progress update
+                # Progress update with token stats
                 successful = len([r for r in results if r['status'] == 'success'])
                 completed_so_far = len(results)
                 remaining_count = len(remaining_dreams) - completed_so_far
-                print(f"  📊 Progress: {completed_so_far}/{len(remaining_dreams)} ({successful} successful, {remaining_count} remaining)")
+                
+                # Get token stats for this model/language
+                model_stats = self.token_tracker.get_model_stats(model)
+                lang_stats = model_stats.get(language)
+                if lang_stats:
+                    tokens_info = f" | 🔢 {lang_stats.total_tokens:,} tokens (${lang_stats.estimated_cost:.4f})"
+                else:
+                    tokens_info = ""
+                
+                print(f"  📊 Progress: {completed_so_far}/{len(remaining_dreams)} ({successful} successful, {remaining_count} remaining){tokens_info}")
                 
                 # Save intermediate progress every batch
                 await self.save_model_language_data(model, language, lang_dir)
@@ -475,6 +497,13 @@ class OpenRouterMultiModelGenerator:
         print(f"    ✅ Total successful: {total_successful}/{self.config.dreams_per_language}")
         print(f"    📏 Recent batch average: {avg_chars:.0f} chars, {avg_words:.0f} words")
         print(f"    ⏱️  Duration: {batch_duration:.1f}s (avg {stats['avg_duration']:.2f}s per dream)")
+        
+        # Show token stats for this model/language
+        model_stats = self.token_tracker.get_model_stats(model)
+        lang_stats = model_stats.get(language)
+        if lang_stats:
+            print(f"    🔢 Tokens: {lang_stats.total_tokens:,} total ({lang_stats.total_input_tokens:,} in, {lang_stats.total_output_tokens:,} out)")
+            print(f"    💰 Cost: ${lang_stats.estimated_cost:.4f} | Avg: {lang_stats.avg_tokens_per_request:.1f} tokens/dream")
         
         # Save final data
         await self.save_model_language_data(model, language, lang_dir)
@@ -675,6 +704,9 @@ class OpenRouterMultiModelGenerator:
         print(f"🤖 Models used: {len(self.models)}")
         print(f"📁 Session: {self.session_id}")
         print(f"💾 Global summary saved: {summary_file}")
+        
+        # Display comprehensive token usage summary
+        print(self.token_tracker.format_stats_summary())
 
 async def generate_1000_openrouter_dreams():
     """Generate 1000 dreams per language using multiple OpenRouter models"""
